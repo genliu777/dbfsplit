@@ -69,7 +69,19 @@ class Task():
         if filter['LinkType'].upper() == 'OR':
             return -1
 
-    def read_dbf(self, path):
+    def read_dbf(self, path=''):
+        if len(path) == 0: path = self.filefrom
+        # 部分文件不是.dbf结尾，必须先转换成.dbf才能读写
+        if '.DBF' not in path.upper(): 
+            tmp_path = os.path.abspath('tmp_read/%s.DBF'%os.path.basename(self.filefrom))
+            if not os.path.exists('tmp_read'):os.mkdir('tmp_read')
+            try:
+                shutil.copy(self.filefrom, tmp_path)
+                path = tmp_path
+            except:
+                self.log.error('task%s:%s copy %s to tmp_dbf fail:%s'%(self.id,self.fileid,self.filefrom,tmp_path))
+                self.log.trace()
+                return False
         records = []
         if os.path.exists(path):
             records = dbf.Table(path)
@@ -83,20 +95,68 @@ class Task():
         mydata = [record for record in records if self.get_comp_result(record)==1]
         return mydata
 
-    def write_local_dbf(self,data_list):
-        new_records = data_list
-        # if not new_records: return False
+    def get_total_records(self):
         tmp_dbf = os.path.abspath('tmp/%s.dbf'%self.id)
         if not os.path.exists('tmp'):os.mkdir('tmp')
-        shutil.copy(self.filefrom, tmp_dbf)
+        if os.path.exists(tmp_dbf):
+            os.remove(tmp_dbf)
+        try:
+            shutil.copy(self.filefrom, tmp_dbf)
+        except:
+            pass
         if not os.path.exists(tmp_dbf):
             self.log.error('task%s:%s copy %s to tmp_dbf fail:%s.dbf'%(self.id,self.fileid,self.filefrom,self.id))
             return False
         records = dbf.Table(tmp_dbf)
         records.open()
+        if records not in self.dbfs:
+            self.dbfs.append(records)
+        return records
+
+    def write_local_dbf_by_del(self, records):
         for record in records:
-            dbf.delete(record)
+            if self.get_comp_result(record)!=1:
+                dbf.delete(record)
         records.pack()
+        select_records = len(records)
+        records.close()
+        self.log.debug('task%s:%s write %s.dbf success'%(self.id,self.fileid,self.id))
+        return select_records
+
+    def write_local_dbf_by_append(self,data_list):
+        new_records = data_list
+        # if not new_records: return False
+        tmp_dbf = os.path.abspath('tmp/%s.dbf'%self.id)
+        if not os.path.exists('tmp'):os.mkdir('tmp')
+        try:
+            modelpath = os.path.abspath('dbfmodel/%s'%os.path.basename(self.filefrom))
+            # 部分文件不是.dbf结尾，必须先转换成.dbf才能读写
+            if '.DBF' not in modelpath.upper(): modelpath += '.DBF'
+            self.log.debug('modelpath:%s'%modelpath)
+            if os.path.exists(modelpath):
+                shutil.copy(modelpath, tmp_dbf)
+            else:
+                # 要删除，此为创建模板用
+                shutil.copy(self.filefrom, modelpath)
+                records = dbf.Table(modelpath)
+                records.open()
+                for record in records:
+                    dbf.delete(record)
+                records.pack()
+                records.close()
+                shutil.copy(modelpath, tmp_dbf)
+        except:
+            self.log.trace()
+            self.log.error('task%s:%s copy %s to dbfmodel fail:%s'%(self.id,self.fileid,self.filefrom,modelpath))
+        if not os.path.exists(tmp_dbf):
+            self.log.error('task%s:%s copy %s to tmp_dbf fail:%s.dbf'%(self.id,self.fileid,self.filefrom,self.id))
+            return False
+        records = dbf.Table(tmp_dbf)
+        records.open()
+        if records:
+            for record in records:
+                dbf.delete(record)
+            records.pack()
         for record in new_records:
             records.append(record)
         records.close()
@@ -105,15 +165,21 @@ class Task():
 
     def send_ok_file(self):
         if 'N' in self.config.get('okfile','yes').upper(): return True
-        tmp_ok_file = os.path.abspath('tmp/%s.ok'%self.fileid)
-        ok_file = self.fileto[0].get('SaveName','').replace('.dbf','.ok')
-        ok_file = ok_file.replace('.DBF','.ok')
-        self.log.debug('ok file:%s'%ok_file)
+        if 'N' in self.config.get("copyresult",'yes').upper(): return True
+        tmp_ok_file = os.path.abspath('tmp/ok.ok')
         if not os.path.exists(tmp_ok_file):
             f=open(tmp_ok_file,'w')
             f.write('')
             f.close()
-        shutil.copy(tmp_ok_file, ok_file)
+        ok_file = self.fileto[0].get('SaveName','').replace('.dbf','.ok')
+        ok_file = ok_file.replace('.DBF','.ok')
+        if '.ok' not in ok_file.lower(): ok_file += '.ok'
+        self.log.debug('ok file:%s'%ok_file)
+        try:
+            shutil.copy(tmp_ok_file, ok_file)
+        except:
+            pass
+        # os.system(r'copy %s %s'%(tmp_ok_file, ok_file))
         # result = tools.command_run(r'copy %s %s'%(tmp_ok_file, ok_file), 3)
         if not os.path.exists(ok_file):
             self.log.error('task%s:%s copy %s to destination:%s fail'%(self.id,self.fileid,tmp_ok_file,ok_file))
@@ -127,12 +193,16 @@ class Task():
         tmp_dbf = os.path.abspath('tmp/%s.dbf'%self.id)
         for destination in self.fileto:
             self.log.debug(r'copy %s %s'%(tmp_dbf, destination.get('SaveName','')))
-            shutil.copy(tmp_dbf, destination.get('SaveName',''))
+            # os.system(r'copy %s %s'%(tmp_dbf, ok_file))
+            try:
+                shutil.copy(tmp_dbf, destination.get('SaveName',''))
+            except:
+                pass
             # result = tools.command_run(r'copy %s %s'%(tmp_dbf, destination.get('SaveName','')), 3)
             if not os.path.exists(destination.get('SaveName','')):
                 self.log.error('task%s:%s copy %s.dbf to destination:%s fail'%(self.id,self.fileid,self.id,destination.get('SaveName','')))
                 return False
-            self.log.debug('task%s:%s copy %s.dbf to destination:%s success'%(self.id,self.fileid,self.id,destination.get('SaveName','')))
+            self.log.info('task%s:%s copy %s.dbf to destination:%s success'%(self.id,self.fileid,self.id,destination.get('SaveName','')))
         return True
 
     def work(self):
@@ -142,7 +212,7 @@ class Task():
             self.log.info('task%s:%s 总记录 %s'%(self.id,self.fileid,len(total_records)))
             mydata = self.get_dbf_data(total_records)
             self.log.info('task%s:%s 匹配 %s'%(self.id,self.fileid,len(mydata)))
-            if self.write_local_dbf(mydata):
+            if self.write_local_dbf_by_append(mydata):
                 self.log.info("task%s:%s write_local_dbf ok" %(self.id,self.fileid))
                 if self.copy_to_destination():
                     if self.send_ok_file():
@@ -157,7 +227,8 @@ if __name__ == '__main__':
     config = myxml.get_sysconfig_from_xml()
     loglevel = config.get('loglevel','DEBUG')
     mytime = config.get('sysdate', '')
-    data = myxml.get_task_from_xml(sysdate=mytime)
+    # data = myxml.get_task_from_xml(sysdate=mytime)
+    data = myxml.get_task_from_xml(sysdate='20160729')
     today = time.localtime(time.time())
     today = time.strftime("%Y%m%d", today)
     mylog = log.Log(filename='log/all.%s.log'%today,cmdlevel=loglevel)

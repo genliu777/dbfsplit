@@ -22,12 +22,19 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.init_sysdate2today()
         self.init_task_frame(data)
         self.signl_connect()
+        # self.threadnum = int(self.config.get('threadnum', '10'))
+        self.threadnum = self.threadnum_spinBox.value()
+        self.thread_list = []  # task按源文件分成多个线程
+        self.show()
+        if 'Y' in self.config.get('autorun', 'Y').upper():
+            self.on_run_pushButton_clicked()
 
     def init(self):
+        self.threadnum = self.threadnum_spinBox.value()
         self.msg_label.setText('')
-        self.thread_result = {}
-        self.thread = []
-        self.task = []
+        self.thread_result = {}  # taskid:success
+        self.thread = []         # 每启动一个线程就放进来，用于停止所有线程操作
+        self.task_select = []    # 存储选中的task
 
     def signl_connect(self):
         self.sysdate_dateEdit.dateChanged.connect(self.load_xml)
@@ -78,22 +85,41 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.task_QTableWidget.resizeColumnsToContents()
 
     def get_select_task(self):
-        self.task = []
+        self.task_select = []
         for task in self.data:
             if self.task_check[task['id']].checkState() == QtCore.Qt.Checked:
-                self.task.append(task)
-        return self.task
+                self.task_select.append(task)
+        return self.task_select
+
+    def sort_data(self,task_list):
+        dict_list = {}
+        for task in task_list:
+            if task['source']['FileName'] not in dict_list:
+                # task_dict = {task['source']['FileName']:[task]}
+                dict_list[task['source']['FileName']] = [task]
+            else:
+                new_list = dict_list[task['source']['FileName']]
+                new_list.append(task)
+                dict_list[task['source']['FileName']] = new_list
+        return dict_list
 
     @QtCore.pyqtSlot()
     def on_run_pushButton_clicked(self):
         # QtWidgets.QMessageBox.critical(self, "Critical", u"错误:正则表达式错误")
         self.init()
+        select_task = self.get_select_task()
+        self.thread_list = [(source,task_thread) for source,task_thread in self.sort_data(select_task).items()]
+        self.log.debug('len thread_list:%s'%len(self.thread_list))
         if self.check_thread_end():
-            work = self.work(self.get_select_task())
-            work.start()
+            for i in range(self.threadnum):
+                if self.thread_list:
+                    source,task_thread = self.thread_list.pop()
+                    work = self.work(task_thread,source)
+                    work.start()
 
     @QtCore.pyqtSlot()
     def on_stop_pushButton_clicked(self):
+        self.msg_label.setText('正在停止线程...')
         for thread in self.thread:
             thread.stop()
 
@@ -104,10 +130,14 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     @QtCore.pyqtSlot()
     def on_errorlog_PushButton_clicked(self):
-        today = time.localtime(time.time())
-        today = time.strftime("%Y%m%d", today)
-        error_log_path = os.path.abspath('error/err.%s.log'%today)
-        os.popen('notepad %s'%error_log_path)
+        try:
+            today = time.localtime(time.time())
+            today = time.strftime("%Y%m%d", today)
+            error_log_path = os.path.abspath('error/err.%s.log'%today)
+            if os.path.exists(error_log_path):
+                os.popen('notepad %s'%error_log_path)
+        except:
+            self.log.trace()
 
     @QtCore.pyqtSlot()
     def on_select_pushButton_clicked(self):
@@ -121,8 +151,10 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
     @QtCore.pyqtSlot(tuple)
     def update_progress(self, data_tuple):
+        status = {5:'任务开始',10:'参数校验成功',30:'读取源文件dbf成功',60:'写本地dbf成功',80:'拷贝到目的地成功',100:'发送ok文件成功,任务结束'}
         taskid, num = data_tuple
         self.task_progress[taskid].setValue(num)
+        self.statusBar().showMessage('线程[%s]正在处理: 任务%s,当前状态进程%s'%(self.task_QTableWidget.item(int(taskid),7).text(), taskid, status[num]))
 
     @QtCore.pyqtSlot(tuple)
     def update_total_records(self, data_tuple):
@@ -141,25 +173,34 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def work_thread_end(self, data_tuple):
         threadid, success = data_tuple
         self.thread_result[threadid] = success
-        if 'Y' in self.config.get('autorun', 'Y').upper():
-            all_thread_end = True
-            self.log.debug('[thread end msg %s success: %s'%data_tuple)
-            if self.check_thread_end():
-                self.close()
+        if self.msg_label.text() != '正在停止线程...':
+            total_success = sum([y for (x,y) in self.thread_result.items() if y>0])
+            self.msg_label.setText('已完成: %s个任务'%total_success)
+            if len(self.thread_list)>0:
+                source,task_thread = self.thread_list.pop()
+                work = self.work(task_thread,source)
+                work.start()
         else:
-            total_success = sum([y for (x,y) in self.thread_result.items()])
-            self.msg_label.setText('任务完成！%s个任务，成功: %s个'%(len(self.task), total_success))
+            self.statusBar().showMessage('线程[%s]结束'%threadid)
+        if self.check_thread_end():
+            if 'Y' in self.config.get('autorun', 'Y').upper():
+                self.log.debug('[thread end msg %s success: %s'%data_tuple)
+                self.close()
+            else:
+                total_success = sum([y for (x,y) in self.thread_result.items() if y >0])
+                self.msg_label.setText('任务完成！%s个任务，成功: %s个'%(len(self.task_select), total_success))
+                self.statusBar().showMessage('结束')
 
 
     def work(self, data, threadid="Work_Thread"):
         work = Work_Thread(self.log, self.config, data)
         work.setIdentity(threadid)
         work.setDaemon(True)
-        work.update_progress.connect(self.update_progress)
-        work.total_records.connect(self.update_total_records)
-        work.filter_records.connect(self.update_filter_records)
-        work.thread_end.connect(self.work_thread_end)
-        self.thread_result[threadid] = -1
+        work.msg_update_progress.connect(self.update_progress)
+        work.msg_total_records.connect(self.update_total_records)
+        work.msg_filter_records.connect(self.update_filter_records)
+        work.msg_thread_end.connect(self.work_thread_end)
+        self.thread_result[threadid] = -2
         self.thread.append(work)
         return work
 
@@ -183,6 +224,6 @@ if __name__ == '__main__':
     mylog = mylog.addFileLog(err_log)
     app = QtWidgets.QApplication(sys.argv)
     window = MainWindow(data=data, config=config, log=mylog)
-    window.show()
+    # window.show()
     sys.exit(app.exec_())
 

@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'Dbfsplit.ui'
 #
-# Created by: PyQt5 UI code generator 5.5
+# Created by: PyQt5 UI code generator 5.5.1
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -27,6 +27,13 @@ class Ui_MainWindow(object):
         self.sysdate_dateEdit.setDate(QtCore.QDate(2016, 9, 17))
         self.sysdate_dateEdit.setObjectName("sysdate_dateEdit")
         self.horizontalLayout_2.addWidget(self.sysdate_dateEdit)
+        self.label_2 = QtWidgets.QLabel(self.centralwidget)
+        self.label_2.setObjectName("label_2")
+        self.horizontalLayout_2.addWidget(self.label_2)
+        self.threadnum_spinBox = QtWidgets.QSpinBox(self.centralwidget)
+        self.threadnum_spinBox.setProperty("value", 10)
+        self.threadnum_spinBox.setObjectName("threadnum_spinBox")
+        self.horizontalLayout_2.addWidget(self.threadnum_spinBox)
         spacerItem = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout_2.addItem(spacerItem)
         self.msg_label = QtWidgets.QLabel(self.centralwidget)
@@ -150,6 +157,7 @@ class Ui_MainWindow(object):
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.label.setText(_translate("MainWindow", "系统时间"))
         self.sysdate_dateEdit.setDisplayFormat(_translate("MainWindow", "yyyy/MM/dd"))
+        self.label_2.setText(_translate("MainWindow", "   线程数:"))
         self.task_QTableWidget.setSortingEnabled(True)
         item = self.task_QTableWidget.horizontalHeaderItem(0)
         item.setText(_translate("MainWindow", "任务ID"))
