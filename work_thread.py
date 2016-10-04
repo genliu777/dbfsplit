@@ -65,12 +65,12 @@ class Work_Thread(threading.Thread, QtCore.QThread):
             task.log.info('task%s:%s 总记录 %s'%(task.id,task.fileid,total_records_num))
             self.msg_update_progress.emit((task.id, 30))
             self.msg_total_records.emit((task.id, total_records_num))
-            if not task.write_local_dbf_by_append(total_records):
+            select_records = task.get_dbf_data(total_records)
+            select_records_num = len(select_records)
+            if not task.write_local_dbf_by_append(select_records):
                 task.log.debug("task%s:%s write_local_dbf fail" %(task.id,task.fileid))
                 return False
             self.msg_update_progress.emit((task.id, 60))
-            select_records = task.get_dbf_data(total_records)
-            select_records_num = len(select_records)
             self.msg_filter_records.emit((task.id, select_records_num))
             task.log.info('task%s:%s 匹配 %s'%(task.id,task.fileid,select_records_num))
             task.log.debug("task%s:%s write_local_dbf ok" %(task.id,task.fileid))

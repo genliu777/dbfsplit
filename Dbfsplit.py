@@ -9,6 +9,21 @@ import log
 from work_thread import Work_Thread
 import datetime
 
+from work import Task
+from functools import partial
+from multiprocessing.pool import Pool
+import multiprocessing
+mylog = log.Log()
+config = myxml.config
+def do_works(task_list):
+    success = 0
+    for item in task_list:
+        task = Task(mylog, config, item)
+        if task.work():
+            success +=1
+    mylog.debug('进程执行完成,成功：%s'%success)
+
+
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, parent = None,log=None,config={},data=[]):
         super(MainWindow, self).__init__(parent)
@@ -110,6 +125,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         select_task = self.get_select_task()
         self.thread_list = [(source,task_thread) for source,task_thread in self.sort_data(select_task).items()]
         self.log.debug('len thread_list:%s'%len(self.thread_list))
+        for i in range(5):
+            p = multiprocessing.Process(target = do_works, args = [self.thread_list.pop(0)[1]])
+            p.start()
         if self.check_thread_end():
             for i in range(self.threadnum):
                 if self.thread_list:
